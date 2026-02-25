@@ -57,7 +57,7 @@ logs_real_motion*
 
 # Large media files
 *.mp4
-*.png
+# *.png
 *.tiff
 *.avi
 *.flv
