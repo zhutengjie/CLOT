@@ -148,6 +148,7 @@ For collaborations, feedback, or further inquiries, please reach out to:
 
 - Tengjie Zhu: [zhutengjie@sjtu.edu.cn](mailto:zhutengjie@sjtu.edu.cn) or Weixin `sy_my_treasure`
 - Guanyu Cai: [caig3822@gmail.com](mailto:caig3822@gmail.com) or Weixin `wxid_2ak1wex0t2ft22`
+- Zhaohui Yang: [yzh_academic@163.com](mailto:yzh_academic@163.com) or WeChat `windyy_wechat`
 - You can also join our weixin discussion group for timely Q&A. Since the group already exceeds 200 members, you'll need to first add one of the authors on Weixin to receive an invitation to join.
 
 
