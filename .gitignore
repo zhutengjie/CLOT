@@ -91,6 +91,8 @@ data/motions
 roboverse/data/Recorded/
 roboverse/data/AMASS/
 AMASS/*
+human_motion/
+human_motion/*
 
 motion_source/lafan_pkl/
 motion_source/lafan_pkl_cont_mask/

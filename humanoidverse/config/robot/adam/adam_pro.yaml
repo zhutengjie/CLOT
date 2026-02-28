@@ -248,7 +248,7 @@ robot:
     left_foot_name: 'toeLeft'
 
 
-    nums_extend_bodies: 3
+    nums_extend_bodies: 5
     extend_config:
       - joint_name: "left_hand"
         parent_name: "elbowLeft"

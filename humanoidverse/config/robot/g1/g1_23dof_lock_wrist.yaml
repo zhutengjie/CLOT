@@ -183,7 +183,7 @@ robot:
     motion_lib_type: 'ZTJ'
     motion_file : ???
     asset:
-      assetRoot: "description/robots/g1/"
+      assetRoot: "humanoidverse/data/robots/g1/"
       assetFileName: "g1_23dof_lock_wrist_fitmotionONLY.xml"
 
     humanoid_type: g1_23dof_lock_wrist
