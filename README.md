@@ -105,6 +105,19 @@ sh train_adam_multi.sh
 sh train_g1_multi.sh
 ```
 If you want to change the number of GPUs used for training, please modify `ngpu` in `humanoidverse/config/base/fabric.yaml` and `nproc_per_node` in the corresponding `.sh` script.
+
+## Model Setup
+By default, model is set up to transformer architechture with amp reward. If you want to change the architechture or disable amp reward, please modify `+exp` in the corresponding `.sh` script.
+```bash
+# for mlp + amp
++exp=motion_tracking_amp
+
+# for mlp only
++exp=motion_tracking
+
+#for transformer only
++exp=motion_tracking_transformer
+```
 ## Citation
 
 If you find our work helpful, please cite:
