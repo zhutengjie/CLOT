@@ -102,7 +102,8 @@ class MotionLibBase():
 
         self.m_cfg = motion_lib_cfg
         self._sim_fps = 1/self.m_cfg.get("step_dt", 1/50)
-        
+        self.cpu_offload = self.m_cfg.get("cpu_offload", False)
+
         self.num_envs = num_envs
         self._device = device
         # self.mesh_parsers = None
@@ -142,16 +143,29 @@ class MotionLibBase():
             self._motion_data_list = np.array(list(data_list.values()))
             self._motion_data_keys = np.array(list(data_list.keys()))
         else:
+            # Save original list for directory mode before converting to array
+            _motion_data_load_list = list(self._motion_data_load)
             self._motion_data_list = np.array(self._motion_data_load)
             self._motion_data_keys = np.array(self._motion_data_load)
-        
+
         self._num_unique_motions = len(self._motion_data_list)
         if self.mode == MotionlibMode.directory:
-            self._motion_data_load = joblib.load(self._motion_data_load[0]) # set self._motion_data_load to a sample of the data 
+            self._motion_data_load = joblib.load(_motion_data_load_list[0]) # set self._motion_data_load to a sample of the data 
         logger.info(f"Loaded {self._num_unique_motions} motions")
-            
-            
-    def load_motions(self, 
+
+    def _store_tensor(self, t: torch.Tensor) -> torch.Tensor:
+        """Store tensor on pinned CPU memory (offload) or device."""
+        if self.cpu_offload:
+            return t.pin_memory()
+        return t.to(self._device)
+
+    def _fetch(self, t: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+        """Index into a stored tensor, moving result to device if offloaded."""
+        if self.cpu_offload:
+            return t[idx.cpu()].to(self._device)
+        return t[idx]
+
+    def load_motions(self,
                      start_idx=0, 
                      max_len=-1, 
                      target_heading = None):
@@ -219,38 +233,38 @@ class MotionLibBase():
         self._motion_fps = torch.tensor(_motion_fps, device=self._device, dtype=torch.float32)
         self._motion_bodies = torch.stack(_motion_bodies).to(self._device).type(torch.float32)
 
-        self._motion_aa = torch.tensor(np.concatenate(_motion_aa), device=self._device, dtype=torch.float32)
+        self._motion_aa = self._store_tensor(torch.from_numpy(np.concatenate(_motion_aa)).float())
 
         self._motion_dt = torch.tensor(_motion_dt, device=self._device, dtype=torch.float32)
         self._motion_num_frames = torch.tensor(_motion_num_frames, device=self._device)
         if self.has_action:
-            self._motion_actions = torch.cat(_motion_actions, dim=0).float().to(self._device)
+            self._motion_actions = self._store_tensor(torch.cat(_motion_actions, dim=0).float())
         if self.has_contact_mask:
-            self._motion_contact_masks = torch.tensor(np.concatenate(_motion_contact_masks), device=self._device, dtype=torch.float32)
+            self._motion_contact_masks = self._store_tensor(torch.from_numpy(np.concatenate(_motion_contact_masks)).float())
         self._num_motions = len(motions)
-    
-        self.gts = torch.cat([m.global_translation for m in motions], dim=0).float().to(self._device)
-        self.grs = torch.cat([m.global_rotation for m in motions], dim=0).float().to(self._device)
-        self.lrs = torch.cat([m.local_rotation for m in motions], dim=0).float().to(self._device)
-        self.grvs = torch.cat([m.global_root_velocity for m in motions], dim=0).float().to(self._device)
-        self.gravs = torch.cat([m.global_root_angular_velocity for m in motions], dim=0).float().to(self._device)
-        self.gavs = torch.cat([m.global_angular_velocity for m in motions], dim=0).float().to(self._device)
-        self.gvs = torch.cat([m.global_velocity for m in motions], dim=0).float().to(self._device)
-        self.dvs = torch.cat([m.dof_vels for m in motions], dim=0).float().to(self._device)
-        
+
+        self.gts = self._store_tensor(torch.cat([m.global_translation for m in motions], dim=0).float())
+        self.grs = self._store_tensor(torch.cat([m.global_rotation for m in motions], dim=0).float())
+        self.lrs = self._store_tensor(torch.cat([m.local_rotation for m in motions], dim=0).float())
+        self.grvs = self._store_tensor(torch.cat([m.global_root_velocity for m in motions], dim=0).float())
+        self.gravs = self._store_tensor(torch.cat([m.global_root_angular_velocity for m in motions], dim=0).float())
+        self.gavs = self._store_tensor(torch.cat([m.global_angular_velocity for m in motions], dim=0).float())
+        self.gvs = self._store_tensor(torch.cat([m.global_velocity for m in motions], dim=0).float())
+        self.dvs = self._store_tensor(torch.cat([m.dof_vels for m in motions], dim=0).float())
+
         if "global_translation_extend" in motions[0].__dict__:
-            self.gts_t = torch.cat([m.global_translation_extend for m in motions], dim=0).float().to(self._device)
-            self.grs_t = torch.cat([m.global_rotation_extend for m in motions], dim=0).float().to(self._device)
-            self.gvs_t = torch.cat([m.global_velocity_extend for m in motions], dim=0).float().to(self._device)
-            self.gavs_t = torch.cat([m.global_angular_velocity_extend for m in motions], dim=0).float().to(self._device)
-        
+            self.gts_t = self._store_tensor(torch.cat([m.global_translation_extend for m in motions], dim=0).float())
+            self.grs_t = self._store_tensor(torch.cat([m.global_rotation_extend for m in motions], dim=0).float())
+            self.gvs_t = self._store_tensor(torch.cat([m.global_velocity_extend for m in motions], dim=0).float())
+            self.gavs_t = self._store_tensor(torch.cat([m.global_angular_velocity_extend for m in motions], dim=0).float())
+
         if "dof_pos" in motions[0].__dict__:
-            self.dof_pos = torch.cat([m.dof_pos for m in motions], dim=0).float().to(self._device)
+            self.dof_pos = self._store_tensor(torch.cat([m.dof_pos for m in motions], dim=0).float())
         if flags.real_traj:
-            self.q_gts = torch.cat(self.q_gts, dim=0).float().to(self._device)
-            self.q_grs = torch.cat(self.q_grs, dim=0).float().to(self._device)
-            self.q_gavs = torch.cat(self.q_gavs, dim=0).float().to(self._device)
-            self.q_gvs = torch.cat(self.q_gvs, dim=0).float().to(self._device)
+            self.q_gts = self._store_tensor(torch.cat(self.q_gts, dim=0).float())
+            self.q_grs = self._store_tensor(torch.cat(self.q_grs, dim=0).float())
+            self.q_gavs = self._store_tensor(torch.cat(self.q_gavs, dim=0).float())
+            self.q_gvs = self._store_tensor(torch.cat(self.q_gvs, dim=0).float())
         
         lengths = self._motion_num_frames
         lengths_shifted = lengths.roll(1)
@@ -374,8 +388,6 @@ class MotionLibBase():
         return action
 
     def get_motion_state(self, motion_ids, motion_times, offset=None):
-        # import time;print("Called get_motion_state at", time.time())
-
         motion_len = self._motion_lengths[motion_ids]
         num_frames = self._motion_num_frames[motion_ids]
         dt = self._motion_dt[motion_ids]
@@ -384,25 +396,26 @@ class MotionLibBase():
         f0l = frame_idx0 + self.length_starts[motion_ids]
         f1l = frame_idx1 + self.length_starts[motion_ids]
 
+        _d = self._device
+
         if "dof_pos" in self.__dict__:
-            local_rot0 = self.dof_pos[f0l]
-            local_rot1 = self.dof_pos[f1l]
+            local_rot0 = self._fetch(self.dof_pos, f0l)
+            local_rot1 = self._fetch(self.dof_pos, f1l)
         else:
-            local_rot0 = self.lrs[f0l]
-            local_rot1 = self.lrs[f1l]
-            
-        body_vel0 = self.gvs[f0l]
-        body_vel1 = self.gvs[f1l]
+            local_rot0 = self._fetch(self.lrs, f0l)
+            local_rot1 = self._fetch(self.lrs, f1l)
 
-        body_ang_vel0 = self.gavs[f0l]
-        body_ang_vel1 = self.gavs[f1l]
+        body_vel0 = self._fetch(self.gvs, f0l)
+        body_vel1 = self._fetch(self.gvs, f1l)
 
-        # breakpoint()
-        rg_pos0 = self.gts[f0l, :]
-        rg_pos1 = self.gts[f1l, :]
+        body_ang_vel0 = self._fetch(self.gavs, f0l)
+        body_ang_vel1 = self._fetch(self.gavs, f1l)
 
-        dof_vel0 = self.dvs[f0l]
-        dof_vel1 = self.dvs[f1l]
+        rg_pos0 = self._fetch(self.gts, f0l)
+        rg_pos1 = self._fetch(self.gts, f1l)
+
+        dof_vel0 = self._fetch(self.dvs, f0l)
+        dof_vel1 = self._fetch(self.dvs, f1l)
 
         vals = [local_rot0, local_rot1, body_vel0, body_vel1, body_ang_vel0, body_ang_vel1, rg_pos0, rg_pos1, dof_vel0, dof_vel1]
         for v in vals:
@@ -433,23 +446,23 @@ class MotionLibBase():
                 local_rot = slerp(local_rot0, local_rot1, torch.unsqueeze(blend, axis=-1))
             dof_pos = _local_rotation_to_dof_smpl(local_rot)
 
-        rb_rot0 = self.grs[f0l]
-        rb_rot1 = self.grs[f1l]
+        rb_rot0 = self._fetch(self.grs, f0l)
+        rb_rot1 = self._fetch(self.grs, f1l)
         rb_rot = rb_rot0 if skip_blend else slerp(rb_rot0, rb_rot1, blend_exp)
         return_dict = {}
         
         if "gts_t" in self.__dict__:
-            rg_pos_t0 = self.gts_t[f0l]
-            rg_pos_t1 = self.gts_t[f1l]
-            
-            rg_rot_t0 = self.grs_t[f0l]
-            rg_rot_t1 = self.grs_t[f1l]
-            
-            body_vel_t0 = self.gvs_t[f0l]
-            body_vel_t1 = self.gvs_t[f1l]
-            
-            body_ang_vel_t0 = self.gavs_t[f0l]
-            body_ang_vel_t1 = self.gavs_t[f1l]
+            rg_pos_t0 = self._fetch(self.gts_t, f0l)
+            rg_pos_t1 = self._fetch(self.gts_t, f1l)
+
+            rg_rot_t0 = self._fetch(self.grs_t, f0l)
+            rg_rot_t1 = self._fetch(self.grs_t, f1l)
+
+            body_vel_t0 = self._fetch(self.gvs_t, f0l)
+            body_vel_t1 = self._fetch(self.gvs_t, f1l)
+
+            body_ang_vel_t0 = self._fetch(self.gavs_t, f0l)
+            body_ang_vel_t1 = self._fetch(self.gavs_t, f1l)
             if offset is None:
                 rg_pos_t = _lerp(rg_pos_t0, rg_pos_t1, blend_exp)
             else:
@@ -464,10 +477,10 @@ class MotionLibBase():
             body_ang_vel_t = body_ang_vel
         
         if flags.real_traj:
-            q_body_ang_vel0, q_body_ang_vel1 = self.q_gavs[f0l], self.q_gavs[f1l]
-            q_rb_rot0, q_rb_rot1 = self.q_grs[f0l], self.q_grs[f1l]
-            q_rg_pos0, q_rg_pos1 = self.q_gts[f0l, :], self.q_gts[f1l, :]
-            q_body_vel0, q_body_vel1 = self.q_gvs[f0l], self.q_gvs[f1l]
+            q_body_ang_vel0, q_body_ang_vel1 = self._fetch(self.q_gavs, f0l), self._fetch(self.q_gavs, f1l)
+            q_rb_rot0, q_rb_rot1 = self._fetch(self.q_grs, f0l), self._fetch(self.q_grs, f1l)
+            q_rg_pos0, q_rg_pos1 = self._fetch(self.q_gts, f0l), self._fetch(self.q_gts, f1l)
+            q_body_vel0, q_body_vel1 = self._fetch(self.q_gvs, f0l), self._fetch(self.q_gvs, f1l)
 
             q_ang_vel = _lerp(q_body_ang_vel0, q_body_ang_vel1, blend_exp)
             q_rb_rot = q_rb_rot0 if skip_blend else slerp(q_rb_rot0, q_rb_rot1, blend_exp)
@@ -481,7 +494,7 @@ class MotionLibBase():
 
 
         if self.has_contact_mask:
-            contact0, contact1 = self._motion_contact_masks[f0l], self._motion_contact_masks[f1l]
+            contact0, contact1 = self._fetch(self._motion_contact_masks, f0l), self._fetch(self._motion_contact_masks, f1l)
             contact = _lerp(contact0, contact1, blend)
             
             return_dict["contact_mask"] = contact
@@ -494,7 +507,7 @@ class MotionLibBase():
             "root_vel": body_vel[..., 0, :].clone(),
             "root_ang_vel": body_ang_vel[..., 0, :].clone(),
             "dof_vel": dof_vel.view(dof_vel.shape[0], -1),
-            "motion_aa": self._motion_aa[f0l],
+            "motion_aa": self._fetch(self._motion_aa, f0l),
             "motion_bodies": self._motion_bodies[motion_ids],
             "rg_pos": rg_pos,
             "rb_rot": rb_rot,
@@ -508,8 +521,6 @@ class MotionLibBase():
         return return_dict
     
     def get_motion_state_simple(self, motion_ids, motion_times, offset=None):
-        # import time;print("Called get_motion_state at", time.time())
-
         motion_len = self._motion_lengths[motion_ids]
         num_frames = self._motion_num_frames[motion_ids]
         dt = self._motion_dt[motion_ids]
@@ -518,25 +529,26 @@ class MotionLibBase():
         f0l = frame_idx0 + self.length_starts[motion_ids]
         f1l = frame_idx1 + self.length_starts[motion_ids]
 
+        _d = self._device
+
         if "dof_pos" in self.__dict__:
-            local_rot0 = self.dof_pos[f0l]
-            local_rot1 = self.dof_pos[f1l]
+            local_rot0 = self._fetch(self.dof_pos, f0l)
+            local_rot1 = self._fetch(self.dof_pos, f1l)
         else:
-            local_rot0 = self.lrs[f0l]
-            local_rot1 = self.lrs[f1l]
-            
-        body_vel0 = self.gvs[f0l]
-        body_vel1 = self.gvs[f1l]
+            local_rot0 = self._fetch(self.lrs, f0l)
+            local_rot1 = self._fetch(self.lrs, f1l)
 
-        body_ang_vel0 = self.gavs[f0l]
-        body_ang_vel1 = self.gavs[f1l]
+        body_vel0 = self._fetch(self.gvs, f0l)
+        body_vel1 = self._fetch(self.gvs, f1l)
 
-        # breakpoint()
-        rg_pos0 = self.gts[f0l, :]
-        rg_pos1 = self.gts[f1l, :]
+        body_ang_vel0 = self._fetch(self.gavs, f0l)
+        body_ang_vel1 = self._fetch(self.gavs, f1l)
 
-        dof_vel0 = self.dvs[f0l]
-        dof_vel1 = self.dvs[f1l]
+        rg_pos0 = self._fetch(self.gts, f0l)
+        rg_pos1 = self._fetch(self.gts, f1l)
+
+        dof_vel0 = self._fetch(self.dvs, f0l)
+        dof_vel1 = self._fetch(self.dvs, f1l)
 
         vals = [local_rot0, local_rot1, body_vel0, body_vel1, body_ang_vel0, body_ang_vel1, rg_pos0, rg_pos1, dof_vel0, dof_vel1]
         for v in vals:
@@ -568,8 +580,8 @@ class MotionLibBase():
         return_dict = {}
         
         if "gts_t" in self.__dict__:
-            rg_pos_t0 = self.gts_t[f0l]
-            rg_pos_t1 = self.gts_t[f1l]
+            rg_pos_t0 = self._fetch(self.gts_t, f0l)
+            rg_pos_t1 = self._fetch(self.gts_t, f1l)
             
             # rg_rot_t0 = self.grs_t[f0l]
             # rg_rot_t1 = self.grs_t[f1l]

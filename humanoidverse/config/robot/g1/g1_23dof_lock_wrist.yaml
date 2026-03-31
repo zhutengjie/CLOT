@@ -180,6 +180,7 @@ robot:
     fix_base_link: False # TEST: fix base link to world
 
   motion:
+    cpu_offload: false   # Set true to offload motion data to CPU pinned memory
     motion_lib_type: 'ZTJ'
     motion_file : ???
     asset:
